@@ -170,6 +170,14 @@ class Pipeline
 
         return messages;
     }
+
+    public void printMessages(List<String> messages)
+    {
+        for(String msg : messages)
+        {
+            System.out.println(msg);
+        }
+    }
 }
 
 public class Pipes_filters
@@ -182,7 +190,8 @@ public class Pipes_filters
             "John, Laptop, httpok, PICTURE",
             "Mary, Phone, @#$%), IMAGE",
             "Peter, Phone, GREAT, AloToFpiCtureS",
-            "Ann, BigMac, So GOOD, Image"
+            "Ann, BigMac, So GOOD, Image",
+            "John, Laptop, fine, ---PICTURE"
         );
 
         Pipeline pipeline=new Pipeline();
@@ -193,10 +202,11 @@ public class Pipes_filters
         pipeline.addFilter(new LinkRemover());
         pipeline.addFilter(new SentimentAnalyzer());
 
+        pipeline.printMessages(messages);
+        System.out.println();
+
         List<String> processedMessages =pipeline.process(messages);
-        for(String msg : processedMessages)
-        {
-            System.out.println(msg);
-        }
+
+        pipeline.printMessages(processedMessages);
     }
 }
