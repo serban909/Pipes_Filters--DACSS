@@ -3,7 +3,7 @@ import java.util.concurrent.*;
 
 interface Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException;
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException;
 }
 
 class BuyerFilter implements Filter
@@ -15,9 +15,8 @@ class BuyerFilter implements Filter
         this.buyers=buyers;
     }
 
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message=queue.take();
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -36,9 +35,8 @@ class BuyerFilter implements Filter
 
 class ProfanityFilter implements Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message = queue.take();
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -55,10 +53,8 @@ class ProfanityFilter implements Filter
 
 class PoliticalFilter implements Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message=queue.take();
-
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -76,9 +72,8 @@ class PoliticalFilter implements Filter
 
 class ImageResizer implements Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message = queue.take();
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -98,9 +93,8 @@ class ImageResizer implements Filter
 
 class LinkRemover implements Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message = queue.take();
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -114,9 +108,8 @@ class LinkRemover implements Filter
 
 class SentimentAnalyzer implements Filter
 {
-    public void process(BlockingQueue<String> queue) throws InterruptedException
+    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
     {
-        String message= queue.take();
         if(message.equals("STOP"))
         {
             queue.put("STOP");
@@ -155,18 +148,6 @@ class SentimentAnalyzer implements Filter
     }
 }
 
-class MessageOutput implements Filter
-{
-    public void process(BlockingQueue<String> queue) throws InterruptedException
-    {
-        String message = queue.take();
-
-        if(message.equals("STOP")) return;
-        
-        System.out.println("Processed Message: "+ message);
-    }
-}
-
 class FilterWorker implements Runnable
 {
     private final Filter filter;
@@ -177,55 +158,100 @@ class FilterWorker implements Runnable
     {
         this.filter = filter;
         this.inputQueue=inputQueue;
-        this.outputQueue=outputQueue;
+        this.outputQueue= outputQueue;
     }
 
     public void run()
     {
-        filter.process(inputQueue, outputQueue);
+        try
+        {
+            while(true)
+            {
+                String message = inputQueue.take();
+                filter.process(message, outputQueue);
+                if(message.equals("STOP")) break;
+            }
+        }
+        catch(InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
     }
 }
 
 class ParallelPipeline
 {
-    private BlockingQueue<String> bqueue1=new LinkedBlockingQueue<>();
-    private BlockingQueue<String> bqueue2=new LinkedBlockingQueue<>();
+    private final List<Filter> filters;
+    private final BlockingQueue<String> queue1 = new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> queue2 = new LinkedBlockingQueue<>();
 
-    public void executePipeline(String[] messages)
+    public ParallelPipeline()
     {
-        for(String message:messages)
+        filters = List.of(
+            new BuyerFilter(new HashSet<>(Set.of("John - Laptop", "Mary - Phone", "Ann - BigMac"))),
+            new ProfanityFilter(),
+            new PoliticalFilter(),
+            new ImageResizer(), 
+            new LinkRemover(),
+            new SentimentAnalyzer()
+        );
+    }
+
+    public void executePipeline(List<String> messages)
+    {
+        for( String message : messages )
         {
-            bqueue1.add(message);
+            queue1.add(message);
         }
-        bqueue1.add("STOP");
+        queue1.add("STOP");
 
-        BuyerFilter buyerFilter = new BuyerFilter(new HashSet<>(Set.of("John - Laptop", "Mary - Phone", "Ann - BigMac")));
-        ProfanityFilter profanityFilter = new ProfanityFilter();
-        PoliticalFilter politicalFilter = new PoliticalFilter();
-        ImageResizer imageResizer = new ImageResizer();
-        LinkRemover linkRemover = new LinkRemover();
-        SentimentAnalyzer sentimentAnalyzer = new SentimentAnalyzer();
-        MessageOutput messageOutput = new MessageOutput();
+        BlockingQueue<String> inputQueue = queue1;
+        BlockingQueue<String> outputQueue = queue2;
 
-        Thread thread1 = new Thread(new FilterWorker(politicalFilter, bqueue2, bqueue1));
-        Thread thread2 = new Thread(new FilterWorker(politicalFilter, bqueue2, bqueue1));
-
-        thread1.start();
-        thread2.start();
-
-        try
+        for(Filter filter : filters)
         {
-            thread1.join();
-            thread2.join();
-        }
-        catch (InterruptedException e)
-        {
-            Thread.currentThread().interrupt();
-        }
+            BlockingQueue<String> finalInput= inputQueue;
+            BlockingQueue<String> finalOutput = outputQueue;
 
-        while(!bqueue2.isEmpty())
-        {
-            System.out.println(bqueue2.poll());
+            Thread filterThread = new Thread(() -> {
+                try {
+                    filter.process(finalInput, finalOutput);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+
+            filterThread.start();
+
+            inputQueue=outputQueue;
+            if(outputQueue==queue1)
+            {
+                outputQueue=queue2;
+            }
+            else
+            {
+                outputQueue=queue1;
+            }
+
+            try {
+                filterThread.join(); // Ensure current filter completes before starting next
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            while(true)
+            {
+                try
+                {
+                    String result = inputQueue.take();
+                    if(result.equals("STOP")) break;
+                    System.out.println("Processed Message "+result);
+                }
+                catch(InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
     }
 }
@@ -242,7 +268,7 @@ public class Pipes_filters_Parallel
             "Ann, BigMac, So GOOD, Image"
         };
 
-        ParallelPipeline pipeline = new ParallelPipeline();
-        pipeline.executePipeline(messages);
+        ParallelPipeline ppipeline = new ParallelPipeline();
+        ppipeline.executePipeline(messages);
     }
 }
