@@ -168,8 +168,14 @@ class FilterWorker implements Runnable
             while(true)
             {
                 String message = inputQueue.take();
+                
+                if(message.equals("STOP")) 
+                {
+                    outputQueue.put("STOP");
+                    break;
+                }
+                
                 filter.process(message, outputQueue);
-                if(message.equals("STOP")) break;
             }
         }
         catch(InterruptedException e)
@@ -197,9 +203,9 @@ class ParallelPipeline
         );
     }
 
-    public void executePipeline(List<String> messages)
-    {
-        for( String message : messages )
+    public List<String> executePipeline(String[] messages)
+        {
+            for( String message : messages )
         {
             queue1.add(message);
         }
@@ -207,51 +213,47 @@ class ParallelPipeline
 
         BlockingQueue<String> inputQueue = queue1;
         BlockingQueue<String> outputQueue = queue2;
+        List<Thread> threads = new ArrayList<>();
 
-        for(Filter filter : filters)
+        try
         {
-            BlockingQueue<String> finalInput= inputQueue;
-            BlockingQueue<String> finalOutput = outputQueue;
-
-            Thread filterThread = new Thread(() -> {
-                try {
-                    filter.process(finalInput, finalOutput);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
-
-            filterThread.start();
-
-            inputQueue=outputQueue;
-            if(outputQueue==queue1)
+            for(Filter filter : filters)
             {
-                outputQueue=queue2;
-            }
-            else
-            {
-                outputQueue=queue1;
+                Thread filterThread = new Thread(new FilterWorker(filter, inputQueue, outputQueue));
+                filterThread.start();
+                threads.add(filterThread);
+
+                BlockingQueue<String> aux = inputQueue;
+                inputQueue = outputQueue;
+                outputQueue = aux;
             }
 
-            try {
-                filterThread.join(); // Ensure current filter completes before starting next
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            while(true)
+            for(Thread thread : threads)
             {
                 try
                 {
-                    String result = inputQueue.take();
-                    if(result.equals("STOP")) break;
-                    System.out.println("Processed Message "+result);
+                    thread.join();
                 }
                 catch(InterruptedException e)
                 {
                     Thread.currentThread().interrupt();
                 }
             }
+
+            List<String> processedMessages =new ArrayList<>();
+            while (true) 
+            {
+                String result = inputQueue.take();
+                if(result.equals("STOP")) break;
+                processedMessages.add(result);
+            }    
+            
+            return processedMessages;
+        }
+        catch (InterruptedException e) 
+        {
+            Thread.currentThread().interrupt();
+            return Collections.emptyList();
         }
     }
 }
@@ -268,7 +270,18 @@ public class Pipes_filters_Parallel
             "Ann, BigMac, So GOOD, Image"
         };
 
+        for(String message : messages)
+        {
+            System.out.println(message);
+        }
+        System.out.println();
+
         ParallelPipeline ppipeline = new ParallelPipeline();
-        ppipeline.executePipeline(messages);
+        List<String> updatedMessages = ppipeline.executePipeline(messages);
+
+        for(String message : updatedMessages)
+        {
+            System.out.println(message);
+        }
     }
 }
