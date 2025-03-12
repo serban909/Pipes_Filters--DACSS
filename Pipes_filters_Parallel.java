@@ -1,164 +1,52 @@
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-interface Filter
+interface Filter extends Runnable
 {
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException;
+    
 }
 
-class BuyerFilter implements Filter
+class ReaderFilter implements Filter
+{
+    private String inputFile;
+    private BlockingQueue<String> outputQueue;
+
+    public ReaderFilter(String inputFile, BlockingQueue<String> outputQueue) 
+    {
+        this.inputFile = inputFile;
+        this.outputQueue = outputQueue;
+    }
+
+    public void run()
+    {
+        try (BufferedReader reader = new BufferedReader(new FileReader(inputFile))) 
+        {
+            String line;
+            while ((line = reader.readLine()) != null) 
+            {
+                outputQueue.put(line);
+            }
+            outputQueue.put("STOP");
+        }
+        catch(IOException | InterruptedException e)
+        {
+            e.printStackTrace();
+        }
+    }
+}
+
+class BuyerFilter implements Filter 
 {
     private HashSet<String> buyers;
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
 
-    public BuyerFilter(HashSet<String> buyers)
+    public BuyerFilter(HashSet<String> buyers, BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue) 
     {
-        this.buyers=buyers;
-    }
-
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-
-        String[] parts=message.split(", ");
-        if(parts.length>=2 && buyers.contains(parts[0]+" - "+parts[1]))
-        {
-            queue.put(message);
-        }
-
-        Thread.sleep(100);
-    }
-}
-
-class ProfanityFilter implements Filter
-{
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-        if(!message.contains("@#$%"))
-        {
-            queue.put(message);
-        }
-
-        Thread.sleep(100);
-    }
-}
-
-class PoliticalFilter implements Filter
-{
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-
-        if(!message.contains("+++") && message.contains("---"))
-        {
-            queue.put(message);
-        }
-
-        Thread.sleep(100);
-    }
-}
-
-class ImageResizer implements Filter
-{
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-
-        String[] parts=message.split(", ");
-        if(parts.length==4)
-        {
-            parts[3] = parts[3].toLowerCase();
-        }
-
-        queue.put(String.join(", ", parts));
-        Thread.sleep(100);
-    }
-}
-
-class LinkRemover implements Filter
-{
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-
-        queue.put(message.replace("http", ""));
-        Thread.sleep(100);
-    }
-}
-
-class SentimentAnalyzer implements Filter
-{
-    public void process(String message, BlockingQueue<String> queue) throws InterruptedException
-    {
-        if(message.equals("STOP"))
-        {
-            queue.put("STOP");
-            return;
-        }
-
-        String[] parts=message.split(", ");
-        if(parts.length>=3)
-        {
-            String reviewedText = parts[2];
-            int upper=0;
-            int lower=0;
-
-            for(char c:reviewedText.toCharArray())
-            {
-                if(Character.isUpperCase(c)) upper++;
-                else if(Character.isLowerCase(c)) lower++;
-            }
-
-            if(upper>lower)
-            {
-                parts[2]+="+";
-            }
-            else if(lower>upper)
-            {
-                parts[2]+="-";
-            }
-            else
-            {
-                parts[2]+="=";
-            }
-        }
-
-        queue.put(String.join(", ", parts));
-        Thread.sleep(100);
-    }
-}
-
-class FilterWorker implements Runnable
-{
-    private final Filter filter;
-    private final BlockingQueue<String> inputQueue;
-    private final BlockingQueue<String> outputQueue;
-
-    public FilterWorker(Filter filter, BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
-    {
-        this.filter = filter;
-        this.inputQueue=inputQueue;
-        this.outputQueue= outputQueue;
+        this.buyers = buyers;
+        this.inputQueue = inputQueue;
+        this.outputQueue = outputQueue;
     }
 
     public void run()
@@ -167,16 +55,16 @@ class FilterWorker implements Runnable
         {
             while(true)
             {
-                String message = inputQueue.take();
-                
-                if(message.equals("STOP")) 
+                String message=inputQueue.take();
+                if(message.equals("STOP")) break;
+
+                String[] words = message.split(", ");
+                if(words.length >= 2 && buyers.contains(words[0].trim()+" - "+words[1].trim()))
                 {
-                    outputQueue.put("STOP");
-                    break;
+                    outputQueue.put(message);
                 }
-                
-                filter.process(message, outputQueue);
             }
+            outputQueue.put("STOP");
         }
         catch(InterruptedException e)
         {
@@ -185,103 +73,298 @@ class FilterWorker implements Runnable
     }
 }
 
-class ParallelPipeline
+class ProfanityFilter implements Filter 
 {
-    private final List<Filter> filters;
-    private final BlockingQueue<String> queue1 = new LinkedBlockingQueue<>();
-    private final BlockingQueue<String> queue2 = new LinkedBlockingQueue<>();
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
 
-    public ParallelPipeline()
+    public ProfanityFilter(BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
     {
-        filters = List.of(
-            new BuyerFilter(new HashSet<>(Set.of("John - Laptop", "Mary - Phone", "Ann - BigMac"))),
-            new ProfanityFilter(),
-            new PoliticalFilter(),
-            new ImageResizer(), 
-            new LinkRemover(),
-            new SentimentAnalyzer()
-        );
+        this.inputQueue = inputQueue;
+        this.outputQueue = outputQueue;
     }
 
-    public List<String> executePipeline(String[] messages)
-        {
-            for( String message : messages )
-        {
-            queue1.add(message);
-        }
-        queue1.add("STOP");
-
-        BlockingQueue<String> inputQueue = queue1;
-        BlockingQueue<String> outputQueue = queue2;
-        List<Thread> threads = new ArrayList<>();
-
+    public void run()
+    {
         try
         {
-            for(Filter filter : filters)
+            while(true)
             {
-                Thread filterThread = new Thread(new FilterWorker(filter, inputQueue, outputQueue));
-                filterThread.start();
-                threads.add(filterThread);
+                String message=inputQueue.take();
+                if(message.equals("STOP")) break;
 
-                BlockingQueue<String> aux = inputQueue;
-                inputQueue = outputQueue;
-                outputQueue = aux;
-            }
-
-            for(Thread thread : threads)
-            {
-                try
+                if(!message.contains("@#$%"))
                 {
-                    thread.join();
-                }
-                catch(InterruptedException e)
-                {
-                    Thread.currentThread().interrupt();
+                    outputQueue.put(message);
                 }
             }
-
-            List<String> processedMessages =new ArrayList<>();
-            while (true) 
-            {
-                String result = inputQueue.take();
-                if(result.equals("STOP")) break;
-                processedMessages.add(result);
-            }    
-            
-            return processedMessages;
+            outputQueue.put("STOP");
         }
-        catch (InterruptedException e) 
+        catch(InterruptedException e)
         {
             Thread.currentThread().interrupt();
-            return Collections.emptyList();
         }
     }
 }
 
-public class Pipes_filters_Parallel
+class PoliticalFilter implements Filter 
+{
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
+
+    public PoliticalFilter (BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
+    {
+        this.inputQueue = inputQueue;
+        this.outputQueue=outputQueue;
+    }
+
+    public void run()
+    {
+        try
+        {
+            while(true)
+            {
+                String message=inputQueue.take();
+                if(message.equals("STOP")) break;
+
+                if(!message.contains("+++") && !message.contains("---"))
+                {
+                    outputQueue.put(message);
+                }
+            }
+            outputQueue.put("STOP");
+        }
+        catch(InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+
+class ImageResizer implements Filter 
+{
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
+
+    public ImageResizer (BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
+    {
+        this.inputQueue=inputQueue;
+        this.outputQueue=outputQueue;
+    }
+
+    public void run()
+    {
+        try
+        {
+            while(true)
+            {
+                String message=inputQueue.take();
+                if(message.equals("STOP")) break;
+
+                String[] parts=message.split(", ");
+                if(parts.length>=4)
+                {
+                    parts[3]=parts[3].toLowerCase();
+                }
+                outputQueue.put(String.join(", ", parts));
+            }
+            outputQueue.put("STOP");
+        }
+        catch(InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+
+class LinkRemover implements Filter 
+{
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
+
+    public LinkRemover (BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
+    {
+        this.inputQueue=inputQueue;
+        this.outputQueue =outputQueue;
+    }
+
+    public void run()
+    {
+        try
+        {
+            while(true)
+            {
+                String message =inputQueue.take();;
+                if(message.equals("STOP")) break;
+
+                outputQueue.put(message.replace("http", ""));
+            }
+            outputQueue.put("STOP");
+        }
+        catch(InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+
+class SentimentAnalyzer implements Filter 
+{
+    private BlockingQueue<String> inputQueue;
+    private BlockingQueue<String> outputQueue;
+
+    public SentimentAnalyzer (BlockingQueue<String> inputQueue, BlockingQueue<String> outputQueue)
+    {
+        this.inputQueue=inputQueue;
+        this.outputQueue=outputQueue;
+    }
+
+    public void run()
+    {
+        try
+        {
+            while(true)
+            {
+                String message =inputQueue.take();
+                if(message.equals("STOP")) break;
+                
+                String[] parts = message.split(", ");
+                if (parts.length >= 3 && !parts[2].isEmpty()) 
+                {
+                    String reviewedText = parts[2];
+                    int upper = 0, lower = 0;
+
+                    for (char c : reviewedText.toCharArray()) 
+                    {
+                        if (Character.isUpperCase(c)) upper++;
+                        else if (Character.isLowerCase(c)) lower++;
+                    }
+
+                    if (upper > lower) 
+                    {
+                        parts[2] += "+";
+                    } 
+                    else if (lower > upper) 
+                    {
+                        parts[2] += "-";
+                    } 
+                    else 
+                    {
+                        parts[2] += "=";
+                    }
+                }
+
+                outputQueue.put(String.join(", ", parts));
+            }
+            outputQueue.put("STOP");
+        }
+        catch (InterruptedException e) 
+        {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+
+class WriterFilter implements Filter
+{
+    private BlockingQueue<String> inputQueue;
+    private String outputFile;
+
+    public WriterFilter(BlockingQueue<String> inputQueue, String outputFile)
+    {
+        this.inputQueue=inputQueue;
+        this.outputFile=outputFile;
+    }
+
+    public void run()
+    {
+        try(BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile)))
+        {
+            while(true)
+            {
+                String message=inputQueue.take();
+                if(message.equals("STOP")) break;
+
+                writer.write(message);
+                writer.newLine();
+            }
+        }
+        catch (IOException | InterruptedException e)
+        {
+            e.printStackTrace();
+        }
+    }
+}
+
+class ParallelPipeline 
+{
+    private final List<Thread> filterThreads= new ArrayList<>();
+
+    public void executePipeline(String inputFile, String outputFile) 
+    {
+        BlockingQueue<String> queue1 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue2 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue3 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue4 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue5 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue6 = new LinkedBlockingQueue<>();
+        BlockingQueue<String> queue7 = new LinkedBlockingQueue<>();
+
+        HashSet<String> buyers=new HashSet<>(Arrays.asList
+        (
+            "John - Laptop", 
+            "Mary - Phone",
+            "Ann - BigMac"
+        ));
+
+        ReaderFilter readerFilter = new ReaderFilter(inputFile, queue1);
+        BuyerFilter buyerFilter = new BuyerFilter(buyers, queue1, queue2);
+        ProfanityFilter profanityFilter = new ProfanityFilter(queue2, queue3);
+        PoliticalFilter politicalFilter = new PoliticalFilter(queue3, queue4);
+        ImageResizer imageResizer = new ImageResizer(queue4, queue5);
+        LinkRemover linkRemover = new LinkRemover(queue5, queue6);
+        SentimentAnalyzer sentimentAnalyzer = new SentimentAnalyzer(queue6, queue7);
+        WriterFilter writerFilter = new WriterFilter(queue7, outputFile);
+
+        startFilterThread(readerFilter);
+        startFilterThread(buyerFilter);
+        startFilterThread(profanityFilter);
+        startFilterThread(politicalFilter);
+        startFilterThread(imageResizer);
+        startFilterThread(linkRemover);
+        startFilterThread(sentimentAnalyzer);
+        startFilterThread(writerFilter);
+
+        for(Thread thread : filterThreads)
+        {
+            try
+            {
+                thread.join();
+            }
+            catch(InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+    }
+
+    private void startFilterThread(Runnable filter)
+    {
+        Thread thread = new Thread(filter);
+        thread.start();
+        filterThreads.add(thread);
+    }
+}
+
+public class Pipes_filters_Parallel 
 {
     public static void main(String[] args) 
     {
-        String[] messages = 
-        {   
-            "John, Laptop, ok, PICTURE",
-            "Mary, Phone, @#$%), IMAGE",
-            "Peter, Phone, GREAT, AloToFpiCtureS",
-            "Ann, BigMac, So GOOD, Image"
-        };
+        String inputFile = "input.txt";
+        String outputFile = "output.txt";
 
-        for(String message : messages)
-        {
-            System.out.println(message);
-        }
-        System.out.println();
-
-        ParallelPipeline ppipeline = new ParallelPipeline();
-        List<String> updatedMessages = ppipeline.executePipeline(messages);
-
-        for(String message : updatedMessages)
-        {
-            System.out.println(message);
-        }
+        ParallelPipeline parallelPipeline = new ParallelPipeline();
+        parallelPipeline.executePipeline(inputFile, outputFile);
     }
 }
