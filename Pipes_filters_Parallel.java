@@ -314,7 +314,34 @@ class ParallelPipeline
         (
             "John - Laptop", 
             "Mary - Phone",
-            "Ann - BigMac"
+            "Ann - BigMac",
+            "Emanuel - Hyundai",
+            "Razvan - Jas39",
+            "Bob - Notebook",
+            "Bogdan - Parrot",
+            "Radu - Dog",
+            "Lucian - Shoes",
+            "Mihai - Coke",
+            "Calin - Pants",
+            "Stefan - Pen",
+            "Toni - Guitar",
+            "Luca - Football",
+            "Andrei - Car",
+            "Flavius - Shirt",
+            "Marian - Outlet",
+            "Peter - Tractor",
+            "Piedone - Shawarma",
+            "Matei - DVD",
+            "Vasile - Wine",
+            "Marioara - Cupcake",
+            "Ghita - Toolbox",
+            "Miriam - Mask",
+            "Alex - MacBook",
+            "Nicu - Sandwich",
+            "Laura - Fish",
+            "Sebastian - Flower",
+            "Daniel - Bonsai",
+            "Terry - Silver"
         ));
 
         ReaderFilter readerFilter = new ReaderFilter(inputFile, queue1);
@@ -346,7 +373,6 @@ class ParallelPipeline
                 Thread.currentThread().interrupt();
             }
         }
-
     }
 
     private void startFilterThread(Runnable filter)
@@ -364,7 +390,13 @@ public class Pipes_filters_Parallel
         String inputFile = "input.txt";
         String outputFile = "output.txt";
 
+        long startTime = System.currentTimeMillis();
+
         ParallelPipeline parallelPipeline = new ParallelPipeline();
         parallelPipeline.executePipeline(inputFile, outputFile);
+
+        long endTime = System.currentTimeMillis();
+
+        System.out.println("Pipeline Execution Time: "+(endTime-startTime)+" ms");
     }
 }
